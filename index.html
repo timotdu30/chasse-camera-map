@@ -1056,46 +1056,33 @@ function toggleAddMode() {
 // ══════════════════════════════════════════
 // MODAL
 // ══════════════════════════════════════════
-function openModal(id, lat, lng) {
-  // Vérifier les droits si on modifie un point existant
-  if (id) {
-    const p = points.find(x => x.id === id);
-    if (p && !isOwnerOf(p)) {
-      showToast('🔒 Seul ' + (p.ownerName || 'le créateur') + ' peut modifier ce point');
-      return;
-    }
-  }
+function openModal(id = null, lat = null, lng = null) {
   editingId = id;
+  const modal = document.getElementById('modalOverlay');
+  const btnDelete = document.getElementById('btnDelete');
   if (id) {
+    document.getElementById('modalTitle').textContent = "Modifier l'emplacement";
     const p = points.find(x => x.id === id);
-    document.getElementById('modalTitle').textContent = p.name || 'Emplacement';
+    if (!p) return;
     document.getElementById('pointName').value = p.name;
     setCoords(p.lat, p.lng);
-    currentFolders = JSON.parse(JSON.stringify(p.folders || []));
-    document.getElementById('btnDelete').style.display = 'inline-flex';
-    document.getElementById('modalOverlay').dataset.lat = p.lat;
-    document.getElementById('modalOverlay').dataset.lng = p.lng;
+    currentFolders = p.folders ? JSON.parse(JSON.stringify(p.folders)) : defaultFolders();
+    btnDelete.style.display = isOwnerOf(p) ? 'inline-flex' : 'none';
   } else {
-    document.getElementById('modalTitle').textContent = 'Nouvel emplacement';
+    document.getElementById('modalTitle').textContent = "Nouvel emplacement";
     document.getElementById('pointName').value = '';
-    if (lat !== undefined && lng !== undefined) {
+    if (lat !== null && lng !== null) {
       setCoords(lat, lng);
-      document.getElementById('modalOverlay').dataset.lat = lat;
-      document.getElementById('modalOverlay').dataset.lng = lng;
     } else {
       document.getElementById('pointCoords').value = '';
       document.getElementById('coordLat').value = '';
       document.getElementById('coordLng').value = '';
-      document.getElementById('modalOverlay').dataset.lat = '';
-      document.getElementById('modalOverlay').dataset.lng = '';
     }
     currentFolders = defaultFolders();
-    document.getElementById('btnDelete').style.display = 'none';
+    btnDelete.style.display = 'none';
   }
-  document.getElementById('coordsError').style.display = 'none';
   renderFolders();
-  document.getElementById('modalOverlay').classList.add('open');
-  setTimeout(() => document.getElementById('pointName').focus(), 100);
+  modal.classList.add('open');
 }
 
 function setCoords(lat, lng) {
@@ -1562,8 +1549,14 @@ function showLb() {
     imgEl.style.display = 'none';
     imgEl.src = '';
     vidEl.style.display = 'block';
-    vidEl.onerror = () => showToast('❌ Impossible de lire cette vidéo (format non supporté par ce navigateur)');
+    vidEl.controls = true;
+    vidEl.autoplay = true;
+    vidEl.muted = true;
+    vidEl.playsInline = true;
+    vidEl.onerror = () => showToast('❌ Impossible de lire cette vidéo');
     vidEl.src = ph.dataUrl;
+    vidEl.load();
+    vidEl.play().catch(err => console.log("Autoplay bloqué"));
   } else {
     vidEl.pause();
     vidEl.style.display = 'none';
