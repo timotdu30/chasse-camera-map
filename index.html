@@ -289,6 +289,15 @@ header {
   border: none; cursor: pointer; width: 100%;
 }
 .photo-thumb:hover .photo-del { opacity: 1; }
+.photo-thumb video { width: 100%; height: 100%; object-fit: cover; }
+.video-badge {
+  position: absolute; bottom: 4px; left: 4px;
+  background: rgba(0,0,0,0.65); color: #fff;
+  border-radius: 5px; padding: 1px 5px;
+  font-size: 0.62rem; font-weight: 700;
+  display: flex; align-items: center; gap: 2px;
+  pointer-events: none;
+}
 
 .add-folder-row { display: flex; gap: 8px; }
 .add-folder-row input {
@@ -305,7 +314,7 @@ header {
   flex-direction: column; align-items: center; justify-content: center;
 }
 .lightbox.open { display: flex; }
-.lightbox img { max-width: 94vw; max-height: 80dvh; border-radius: 10px; object-fit: contain; }
+.lightbox img, .lightbox video { max-width: 94vw; max-height: 80dvh; border-radius: 10px; object-fit: contain; }
 .lightbox-close {
   position: absolute; top: 16px; right: 20px;
   background: rgba(255,255,255,0.1); border: none; color: #fff;
@@ -377,11 +386,11 @@ header {
 .profile-modal-photos {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px;
 }
-.profile-modal-photos img {
+.profile-modal-photos img, .profile-modal-photos video {
   width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; cursor: pointer;
   transition: transform 0.2s;
 }
-.profile-modal-photos img:hover { transform: scale(1.05); }
+.profile-modal-photos img:hover, .profile-modal-photos video:hover { transform: scale(1.05); }
 
 /* ═══ GOOGLE AUTH BUTTON ═══ */
 .btn-google {
@@ -566,6 +575,7 @@ header {
 <div class="lightbox" id="lightbox">
   <button class="lightbox-close" onclick="closeLightbox()">✕</button>
   <img id="lbImg" src="" alt=""/>
+  <video id="lbVideo" controls style="display:none;"></video>
   <div class="lightbox-name" id="lbName"></div>
   <div class="lightbox-nav">
     <button onclick="lbNav(-1)">← Précédent</button>
@@ -575,7 +585,7 @@ header {
 
 <div class="toast" id="toast"></div>
 
-<input type="file" id="fileInput" multiple accept="image/*" style="display:none" onchange="handleFileInput(this)"/>
+<input type="file" id="fileInput" multiple accept="image/*,video/*" style="display:none" onchange="handleFileInput(this)"/>
 
 <script>
 // ══════════════════════════════════════════
@@ -831,8 +841,16 @@ function makePopup(p) {
   let photosHtml = '';
   folders.forEach(f => {
     (f.photos||[]).slice(0, 3).forEach((ph, i) => {
-      photosHtml += `<img src="${ph.dataUrl}" onclick="openLbPoint('${p.id}','${f.id}',${i})"
-        style="width:58px;height:58px;object-fit:cover;border-radius:7px;cursor:pointer;border:2px solid #2d5016;" />`;
+      if (ph.type === 'video') {
+        photosHtml += `<div onclick="openLbPoint('${p.id}','${f.id}',${i})"
+          style="position:relative;width:58px;height:58px;border-radius:7px;cursor:pointer;border:2px solid #2d5016;background:#0f1a0a;display:flex;align-items:center;justify-content:center;overflow:hidden;">
+          <video src="${ph.dataUrl}" muted style="width:100%;height:100%;object-fit:cover;"></video>
+          <span style="position:absolute;font-size:1.1rem;">▶️</span>
+        </div>`;
+      } else {
+        photosHtml += `<img src="${ph.dataUrl}" onclick="openLbPoint('${p.id}','${f.id}',${i})"
+          style="width:58px;height:58px;object-fit:cover;border-radius:7px;cursor:pointer;border:2px solid #2d5016;" />`;
+      }
     });
   });
   const ownerColor = getPointColor(p);
@@ -849,7 +867,7 @@ function makePopup(p) {
       ${ownerLine}
       ${folders.length ? `<div style="font-size:0.75rem;color:#555;margin-bottom:6px;">📁 ${folders.map(f=>f.name).join(' · ')}</div>` : ''}
       ${photosHtml ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;">${photosHtml}</div>` : ''}
-      ${totalPhotos > 0 ? `<div style="font-size:0.72rem;color:#7a9460;margin-bottom:8px;">📸 ${totalPhotos} photo${totalPhotos>1?'s':''} au total</div>` : ''}
+      ${totalPhotos > 0 ? `<div style="font-size:0.72rem;color:#7a9460;margin-bottom:8px;">📸 ${totalPhotos} fichier${totalPhotos>1?'s':''} au total</div>` : ''}
       ${isOwner ? `<button onclick="openModal('${p.id}')" style="width:100%;background:#2d5016;color:#dde8d0;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:700;font-size:0.82rem;font-family:inherit;">✏️ Modifier / Voir photos</button>` : `<button onclick="openProfilePoint('${p.id}')" style="width:100%;background:#162010;color:#dde8d0;border:1px solid #2d5016;border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:700;font-size:0.82rem;font-family:inherit;">👁 Voir les photos</button>`}
     </div>`;
 }
@@ -1056,26 +1074,48 @@ function handleFileInput(input) {
   const folder = currentFolders.find(f => f.id === activeFolderUpload);
   if (!folder) return;
   const files = Array.from(input.files);
-  let done = 0;
   if (!files.length) return;
+  let done = 0;
+  const finish = () => { if (++done === files.length) renderFolders(); };
+
   files.forEach(file => {
-    // Resize for storage
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const MAX = 1200;
-      let w = img.width, h = img.height;
-      if (w > MAX) { h = h * MAX / w; w = MAX; }
-      if (h > MAX) { w = w * MAX / h; h = MAX; }
-      canvas.width = w; canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-      folder.photos.push({ name: file.name, dataUrl });
-      URL.revokeObjectURL(url);
-      if (++done === files.length) renderFolders();
-    };
-    img.src = url;
+    const isVideo = file.type.startsWith('video/');
+
+    if (isVideo) {
+      // Vérifier une taille raisonnable avant encodage base64 (limite stockage)
+      const MAX_VIDEO_MB = 25;
+      if (file.size > MAX_VIDEO_MB * 1024 * 1024) {
+        showToast(`⚠️ Vidéo trop lourde (>${MAX_VIDEO_MB} Mo) — réduis-la avant d'ajouter`);
+        finish();
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        folder.photos.push({ name: file.name, dataUrl: reader.result, type: 'video' });
+        finish();
+      };
+      reader.onerror = () => { showToast('❌ Erreur lecture vidéo'); finish(); };
+      reader.readAsDataURL(file);
+    } else {
+      // Resize for storage
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX = 1200;
+        let w = img.width, h = img.height;
+        if (w > MAX) { h = h * MAX / w; w = MAX; }
+        if (h > MAX) { w = w * MAX / h; h = MAX; }
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        folder.photos.push({ name: file.name, dataUrl, type: 'image' });
+        URL.revokeObjectURL(url);
+        finish();
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); showToast('❌ Erreur lecture image'); finish(); };
+      img.src = url;
+    }
   });
   input.value = '';
 }
@@ -1094,23 +1134,29 @@ function renderFolders() {
   }
   container.innerHTML = currentFolders.map(f => {
     const photos = f.photos || [];
-    const thumbs = photos.map((ph, i) => `
-      <div class="photo-thumb">
-        <img src="${ph.dataUrl}" alt="${ph.name}" onclick="openLbModal('${f.id}',${i})"/>
+    const thumbs = photos.map((ph, i) => {
+      const isVideo = ph.type === 'video';
+      const media = isVideo
+        ? `<video src="${ph.dataUrl}" muted preload="metadata"></video><span class="video-badge">▶️ Vidéo</span>`
+        : `<img src="${ph.dataUrl}" alt="${ph.name}" />`;
+      return `
+      <div class="photo-thumb" onclick="openLbModal('${f.id}',${i})">
+        ${media}
         <button class="photo-del" onclick="event.stopPropagation();removePhoto('${f.id}',${i})">✕</button>
-      </div>`).join('');
+      </div>`;
+    }).join('');
     return `
       <div class="folder-item" id="folder-${f.id}">
         <div class="folder-header" onclick="toggleFolder('${f.id}')">
           <span class="folder-icon">📁</span>
           <span class="folder-name">${f.name}</span>
-          <span class="folder-count">${photos.length} photo${photos.length!==1?'s':''}</span>
+          <span class="folder-count">${photos.length} fichier${photos.length!==1?'s':''}</span>
           <button onclick="event.stopPropagation();deleteFolder('${f.id}')" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:0.8rem;padding:2px 6px;">🗑</button>
           <span class="folder-chevron">›</span>
         </div>
         <div class="folder-photos">
           <div class="folder-photo-upload" onclick="triggerFolderUpload('${f.id}')">
-            📸 Ajouter des photos dans "${f.name}"
+            📸🎬 Ajouter des photos/vidéos dans "${f.name}"
           </div>
           <div class="photo-grid">${thumbs}</div>
         </div>
@@ -1139,12 +1185,31 @@ function openLbPoint(pid, fid, idx) {
 
 function showLb() {
   if (!lbPhotos.length) return;
-  document.getElementById('lbImg').src = lbPhotos[lbIndex].dataUrl;
-  document.getElementById('lbName').textContent = lbPhotos[lbIndex].name;
+  const ph = lbPhotos[lbIndex];
+  const imgEl = document.getElementById('lbImg');
+  const vidEl = document.getElementById('lbVideo');
+  if (ph.type === 'video') {
+    imgEl.style.display = 'none';
+    imgEl.src = '';
+    vidEl.style.display = 'block';
+    vidEl.src = ph.dataUrl;
+  } else {
+    vidEl.pause();
+    vidEl.style.display = 'none';
+    vidEl.src = '';
+    imgEl.style.display = 'block';
+    imgEl.src = ph.dataUrl;
+  }
+  document.getElementById('lbName').textContent = ph.name;
   document.getElementById('lightbox').classList.add('open');
 }
 
-function closeLightbox() { document.getElementById('lightbox').classList.remove('open'); }
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('open');
+  const vidEl = document.getElementById('lbVideo');
+  vidEl.pause();
+  vidEl.src = '';
+}
 function lbNav(dir) { lbIndex = (lbIndex + dir + lbPhotos.length) % lbPhotos.length; showLb(); }
 
 // ══════════════════════════════════════════
@@ -1197,7 +1262,7 @@ function renderProfileTab() {
           ${avatarHtml}
           <div>
             <div class="hunter-name">${h.name}</div>
-            <div class="hunter-stats">📍 ${h.pts.length} emplacement${h.pts.length>1?'s':''} · 📸 ${totalPhotos} photo${totalPhotos>1?'s':''}</div>
+            <div class="hunter-stats">📍 ${h.pts.length} emplacement${h.pts.length>1?'s':''} · 📸 ${totalPhotos} fichier${totalPhotos>1?'s':''}</div>
           </div>
           <span style="margin-left:auto;font-size:1.1rem;color:var(--text-dim);">›</span>
         </div>
@@ -1231,16 +1296,18 @@ function openHunterProfile(uid) {
     </div>`).join('');
 
   const photosHtml = allPhotos.length
-    ? `<div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-dim);margin:16px 0 8px;">📸 Photos (${allPhotos.length})</div>
+    ? `<div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-dim);margin:16px 0 8px;">📸 Photos & vidéos (${allPhotos.length})</div>
        <div class="profile-modal-photos">${allPhotos.map(({ph,pid,fid,idx}) =>
-         `<img src="${ph.dataUrl}" onclick="openLbPoint('${pid}','${fid}',${idx})" />`).join('')}</div>`
-    : `<div style="color:var(--text-dim);font-size:0.82rem;margin-top:12px;">Aucune photo pour l'instant.</div>`;
+         ph.type === 'video'
+           ? `<div style="position:relative;" onclick="openLbPoint('${pid}','${fid}',${idx})"><video src="${ph.dataUrl}" muted></video><span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:1.3rem;pointer-events:none;">▶️</span></div>`
+           : `<img src="${ph.dataUrl}" onclick="openLbPoint('${pid}','${fid}',${idx})" />`).join('')}</div>`
+    : `<div style="color:var(--text-dim);font-size:0.82rem;margin-top:12px;">Aucune photo ni vidéo pour l'instant.</div>`;
 
   document.getElementById('profileModalBody').innerHTML = `
     <div style="text-align:center;">${avatarHtml}</div>
     <div style="display:flex;gap:16px;justify-content:center;margin-bottom:16px;">
       <div style="text-align:center;"><div style="font-size:1.4rem;font-weight:800;color:${color};">${myPoints.length}</div><div style="font-size:0.72rem;color:var(--text-dim);">Emplacements</div></div>
-      <div style="text-align:center;"><div style="font-size:1.4rem;font-weight:800;color:${color};">${totalPhotos}</div><div style="font-size:0.72rem;color:var(--text-dim);">Photos</div></div>
+      <div style="text-align:center;"><div style="font-size:1.4rem;font-weight:800;color:${color};">${totalPhotos}</div><div style="font-size:0.72rem;color:var(--text-dim);">Fichiers</div></div>
     </div>
     <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-dim);margin-bottom:8px;">📍 Emplacements</div>
     <div style="background:var(--surface2);border-radius:10px;padding:4px 10px;">${pointsHtml}</div>
