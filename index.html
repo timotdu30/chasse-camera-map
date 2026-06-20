@@ -422,6 +422,17 @@ header {
   <div class="config-box">
     <h1>🔥 Configuration Firebase</h1>
     <p>Pour synchroniser la carte entre tous les utilisateurs, entre les infos de ton projet Firebase. Tu n'as à faire ça qu'une seule fois — les autres n'auront qu'à ouvrir le même fichier HTML.</p>
+
+    <div class="config-field">
+      <label>📋 Collage rapide</label>
+      <textarea id="cfg-paste" placeholder="Colle ici tout le bloc Firebase (API Key, Auth Domain, Database URL, Project ID...) et les champs se rempliront automatiquement" rows="4" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:11px 14px;color:var(--text);font-size:0.82rem;outline:none;font-family:monospace;resize:vertical;transition:border-color 0.2s;" oninput="parseConfigPaste(this.value)"></textarea>
+    </div>
+    <div style="margin:14px 0 18px;display:flex;align-items:center;gap:10px;">
+      <div style="flex:1;height:1px;background:var(--border);"></div>
+      <span style="font-size:0.72rem;color:var(--text-dim);">ou remplir manuellement</span>
+      <div style="flex:1;height:1px;background:var(--border);"></div>
+    </div>
+
     <div class="config-field">
       <label>API Key</label>
       <input id="cfg-apiKey" placeholder="AIzaSy..." />
@@ -624,6 +635,68 @@ header {
 // ══════════════════════════════════════════
 let db = null;
 let useFirebase = false;
+
+function parseConfigPaste(text) {
+  if (!text || !text.trim()) return;
+
+  // 1) Format "clé: valeur" ou "clé = valeur" ou objet JS (apiKey: "...", databaseURL: '...')
+  const grab = (keys) => {
+    for (const k of keys) {
+      const re = new RegExp(k + '\\s*[:=]\\s*["\']?([^"\',\\n\\r]+)["\']?', 'i');
+      const m = text.match(re);
+      if (m) return m[1].trim();
+    }
+    return null;
+  };
+
+  let apiKey      = grab(['apiKey', 'api[_ ]?key']);
+  let authDomain  = grab(['authDomain', 'auth[_ ]?domain']);
+  let databaseURL = grab(['databaseURL', 'database[_ ]?url']);
+  let projectId   = grab(['projectId', 'project[_ ]?id']);
+
+  // 2) Format "Label" sur une ligne, valeur sur la ligne suivante (style copié depuis la console Firebase)
+  if (!apiKey || !authDomain || !databaseURL || !projectId) {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].toLowerCase();
+      const next = lines[i + 1];
+      if (!next) continue;
+      if (!apiKey && /api\s*key/.test(line)) apiKey = next;
+      if (!authDomain && /auth\s*domain/.test(line)) authDomain = next;
+      if (!databaseURL && /database\s*url/.test(line)) databaseURL = next;
+      if (!projectId && /project\s*id/.test(line)) projectId = next;
+    }
+  }
+
+  // 3) Filets de sécurité par motif reconnaissable, peu importe les labels
+  if (!apiKey) {
+    const m = text.match(/\bAIza[0-9A-Za-z_\-]{20,}\b/);
+    if (m) apiKey = m[0];
+  }
+  if (!authDomain) {
+    const m = text.match(/\b[a-z0-9-]+\.firebaseapp\.com\b/i);
+    if (m) authDomain = m[0];
+  }
+  if (!databaseURL) {
+    const m = text.match(/https:\/\/[a-z0-9-]+(?:-default-rtdb)?\.[a-z0-9.\-]*firebasedatabase\.app\/?|https:\/\/[a-z0-9-]+\.firebaseio\.com\/?/i);
+    if (m) databaseURL = m[0];
+  }
+  if (!projectId) {
+    // Déduit souvent du authDomain : "mon-projet.firebaseapp.com" -> "mon-projet"
+    if (authDomain) {
+      const m = authDomain.match(/^([a-z0-9-]+)\.firebaseapp\.com$/i);
+      if (m) projectId = m[1];
+    }
+  }
+
+  if (apiKey)      document.getElementById('cfg-apiKey').value = apiKey;
+  if (authDomain)  document.getElementById('cfg-authDomain').value = authDomain;
+  if (databaseURL) document.getElementById('cfg-dbUrl').value = databaseURL.replace(/\/$/, '');
+  if (projectId)   document.getElementById('cfg-projectId').value = projectId;
+
+  const found = [apiKey, authDomain, databaseURL, projectId].filter(Boolean).length;
+  if (found > 0) showToast(`✅ ${found}/4 champs détectés et remplis`);
+}
 
 function saveConfig() {
   const cfg = {
@@ -934,10 +1007,10 @@ function makePopup(p) {
   folders.forEach(f => {
     (f.photos||[]).slice(0, 3).forEach((ph, i) => {
       if (ph.type === 'video') {
+        const thumbBg = ph.poster ? `background-image:url('${ph.poster}');background-size:cover;background-position:center;` : `background:#0f1a0a;`;
         photosHtml += `<div onclick="openLbPoint('${p.id}','${f.id}',${i})"
-          style="position:relative;width:58px;height:58px;border-radius:7px;cursor:pointer;border:2px solid #2d5016;background:#0f1a0a;display:flex;align-items:center;justify-content:center;overflow:hidden;">
-          <video src="${ph.dataUrl}" muted style="width:100%;height:100%;object-fit:cover;"></video>
-          <span style="position:absolute;font-size:1.1rem;">▶️</span>
+          style="position:relative;width:58px;height:58px;border-radius:7px;cursor:pointer;border:2px solid #2d5016;${thumbBg}display:flex;align-items:center;justify-content:center;overflow:hidden;">
+          <span style="position:absolute;font-size:1.1rem;text-shadow:0 1px 3px rgba(0,0,0,0.6);">▶️</span>
         </div>`;
       } else {
         photosHtml += `<img src="${ph.dataUrl}" onclick="openLbPoint('${p.id}','${f.id}',${i})"
@@ -1186,8 +1259,8 @@ async function handleFileInput(input) {
           continue;
         }
         showToast(`🎬 Compression de "${file.name}"...`);
-        const dataUrl = await compressVideo(file, MAX_VIDEO_SECONDS);
-        folder.photos.push({ name: file.name, dataUrl, type: 'video' });
+        const result = await compressVideo(file, MAX_VIDEO_SECONDS);
+        folder.photos.push({ name: file.name, dataUrl: result.dataUrl, poster: result.poster || null, type: 'video' });
         renderFolders();
       } else if (file.type.startsWith('image/')) {
         const dataUrl = await compressImage(file);
@@ -1231,22 +1304,36 @@ function compressImage(file) {
 
 // Recompresse une vidéo : limite à MAX_VIDEO_SECONDS, redimensionne, ré-encode en webm
 // via MediaRecorder pour réduire fortement le poids avant stockage en base64.
+// Génère aussi un "poster" (image fixe) pour un affichage fiable en miniature,
+// car les vignettes <video> ne se peignent pas de façon fiable sur tous les navigateurs.
 function compressVideo(file, maxSeconds) {
   return new Promise((resolve, reject) => {
-    if (typeof MediaRecorder === 'undefined') {
-      // Pas de support MediaRecorder (vieux Safari) -> fallback : stocker tel quel si raisonnable
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(new Error('lecture vidéo impossible'));
-      reader.readAsDataURL(file);
-      return;
-    }
-
     const url = URL.createObjectURL(file);
     const video = document.createElement('video');
     video.src = url;
     video.muted = true;
     video.playsInline = true;
+
+    if (typeof MediaRecorder === 'undefined') {
+      // Pas de support MediaRecorder (vieux Safari) -> fallback : stocker tel quel si raisonnable
+      video.onloadeddata = () => {
+        captureFrame(video, video.videoWidth || 320, video.videoHeight || 240).then(poster => {
+          URL.revokeObjectURL(url);
+          const reader = new FileReader();
+          reader.onload = () => resolve({ dataUrl: reader.result, poster });
+          reader.onerror = () => reject(new Error('lecture vidéo impossible'));
+          reader.readAsDataURL(file);
+        }).catch(() => {
+          URL.revokeObjectURL(url);
+          const reader = new FileReader();
+          reader.onload = () => resolve({ dataUrl: reader.result, poster: null });
+          reader.onerror = () => reject(new Error('lecture vidéo impossible'));
+          reader.readAsDataURL(file);
+        });
+      };
+      video.onerror = () => { URL.revokeObjectURL(url); reject(new Error('vidéo illisible')); };
+      return;
+    }
 
     video.onloadedmetadata = () => {
       try {
@@ -1266,6 +1353,7 @@ function compressVideo(file, maxSeconds) {
 
         const recorder = new MediaRecorder(stream, mimeType ? { mimeType, videoBitsPerSecond: 800000 } : { videoBitsPerSecond: 800000 });
         const chunks = [];
+        let posterDataUrl = null;
         recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
         recorder.onerror = e => { cleanup(); reject(new Error('échec compression vidéo')); };
         recorder.onstop = () => {
@@ -1273,7 +1361,7 @@ function compressVideo(file, maxSeconds) {
           if (!chunks.length) { reject(new Error('aucune donnée vidéo capturée')); return; }
           const blob = new Blob(chunks, { type: mimeType || 'video/webm' });
           const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
+          reader.onload = () => resolve({ dataUrl: reader.result, poster: posterDataUrl });
           reader.onerror = () => reject(new Error('encodage final impossible'));
           reader.readAsDataURL(blob);
         };
@@ -1288,9 +1376,15 @@ function compressVideo(file, maxSeconds) {
         }
 
         video.currentTime = 0;
+        let frameCount = 0;
         video.onplay = () => {
           drawTimer = setInterval(() => {
-            try { ctx.drawImage(video, 0, 0, w, h); } catch(e) {}
+            try {
+              ctx.drawImage(video, 0, 0, w, h);
+              frameCount++;
+              // Capture la 2e frame dessinée comme poster (la 1ère peut être noire)
+              if (frameCount === 2) posterDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+            } catch(e) {}
           }, 1000 / 25);
         };
         video.onended = () => { try { recorder.stop(); } catch(e) {} };
@@ -1312,6 +1406,25 @@ function compressVideo(file, maxSeconds) {
   });
 }
 
+// Capture une frame d'une vidéo HTMLVideoElement déjà chargée, sous forme de dataURL JPEG
+function captureFrame(video, w, h) {
+  return new Promise((resolve, reject) => {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      const grab = () => {
+        try {
+          ctx.drawImage(video, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
+        } catch(e) { reject(e); }
+      };
+      if (video.readyState >= 2) grab();
+      else video.addEventListener('loadeddata', grab, { once: true });
+    } catch(e) { reject(e); }
+  });
+}
+
 function removePhoto(fid, idx) {
   const folder = currentFolders.find(f => f.id === fid);
   if (folder) folder.photos.splice(idx, 1);
@@ -1329,7 +1442,9 @@ function renderFolders() {
     const thumbs = photos.map((ph, i) => {
       const isVideo = ph.type === 'video';
       const media = isVideo
-        ? `<video src="${ph.dataUrl}" muted preload="metadata"></video><span class="video-badge">▶️ Vidéo</span>`
+        ? (ph.poster
+            ? `<img src="${ph.poster}" alt="${ph.name}" /><span class="video-badge">▶️ Vidéo</span>`
+            : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#0f1a0a;font-size:1.5rem;">🎬</div><span class="video-badge">▶️ Vidéo</span>`)
         : `<img src="${ph.dataUrl}" alt="${ph.name}" />`;
       return `
       <div class="photo-thumb" onclick="openLbModal('${f.id}',${i})">
@@ -1491,7 +1606,7 @@ function openHunterProfile(uid) {
     ? `<div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-dim);margin:16px 0 8px;">📸 Photos & vidéos (${allPhotos.length})</div>
        <div class="profile-modal-photos">${allPhotos.map(({ph,pid,fid,idx}) =>
          ph.type === 'video'
-           ? `<div style="position:relative;" onclick="openLbPoint('${pid}','${fid}',${idx})"><video src="${ph.dataUrl}" muted></video><span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:1.3rem;pointer-events:none;">▶️</span></div>`
+           ? `<div style="position:relative;border-radius:8px;overflow:hidden;${ph.poster ? `background-image:url('${ph.poster}');background-size:cover;background-position:center;` : 'background:#0f1a0a;'}aspect-ratio:1;cursor:pointer;" onclick="openLbPoint('${pid}','${fid}',${idx})"><span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:1.3rem;text-shadow:0 1px 3px rgba(0,0,0,0.6);pointer-events:none;">▶️</span></div>`
            : `<img src="${ph.dataUrl}" onclick="openLbPoint('${pid}','${fid}',${idx})" />`).join('')}</div>`
     : `<div style="color:var(--text-dim);font-size:0.82rem;margin-top:12px;">Aucune photo ni vidéo pour l'instant.</div>`;
 
