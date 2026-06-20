@@ -1239,7 +1239,62 @@ function triggerFolderUpload(fid) {
 }
 
 const MAX_VIDEO_SECONDS = 10;
-const MAX_VIDEO_MB_RAW = 80; // taille max du fichier source accepté avant compression
+const MAX_VIDEO_MB_RAW = 150; // taille max acceptée pour le fichier vidéo source, avant transcodage
+
+// ══════════════════════════════════════════
+// FFMPEG.WASM — transcodage vidéo universel
+// ══════════════════════════════════════════
+// Beaucoup de formats issus de caméras de chasse (.AVI/MJPEG notamment) ne sont
+// PAS lisibles nativement par les navigateurs. On transcode donc systématiquement
+// toute vidéo en MP4 H.264/AAC (yuv420p, profil baseline) via ffmpeg compilé en
+// WebAssembly, chargé à la demande, ce qui garantit une lecture universelle.
+let ffmpegInstance = null;
+let ffmpegLoadingPromise = null;
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('échec de chargement de ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+function loadFfmpeg() {
+  if (ffmpegInstance) return Promise.resolve(ffmpegInstance);
+  if (ffmpegLoadingPromise) return ffmpegLoadingPromise;
+
+  if (typeof SharedArrayBuffer === 'undefined') {
+    ffmpegLoadingPromise = Promise.reject(new Error(
+      "le convertisseur vidéo nécessite que la page soit servie avec isolation cross-origin (COOP/COEP) — " +
+      "si tu ouvres le fichier directement (file://) ou via un hébergement basique, ça ne fonctionnera pas. " +
+      "Héberge le fichier sur un serveur qui ajoute les en-têtes Cross-Origin-Opener-Policy: same-origin et Cross-Origin-Embedder-Policy: require-corp."
+    ));
+    return ffmpegLoadingPromise;
+  }
+
+  ffmpegLoadingPromise = (async () => {
+    try {
+      await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js');
+      await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js');
+
+      const { FFmpeg } = FFmpegWASM;
+      const ffmpeg = new FFmpeg();
+      await ffmpeg.load({
+        coreURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
+        wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
+      });
+      ffmpegInstance = ffmpeg;
+      return ffmpeg;
+    } catch (e) {
+      ffmpegLoadingPromise = null; // permet de réessayer si ça a échoué
+      throw new Error('moteur vidéo indisponible (connexion internet requise au premier import) : ' + e.message);
+    }
+  })();
+
+  return ffmpegLoadingPromise;
+}
 
 async function handleFileInput(input) {
   if (!activeFolderUpload) { showToast('❌ Aucun dossier actif pour l\'upload'); return; }
@@ -1252,22 +1307,47 @@ async function handleFileInput(input) {
 
   for (const file of files) {
     try {
-      const isVideo = file.type.startsWith('video/');
+      const isVideo = file.type.startsWith('video/') || /\.(mp4|mov|m4v|webm|avi|3gp|mkv)$/i.test(file.name);
+      const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(file.name);
+
       if (isVideo) {
         if (file.size > MAX_VIDEO_MB_RAW * 1024 * 1024) {
           showToast(`⚠️ "${file.name}" trop lourde (>${MAX_VIDEO_MB_RAW} Mo), ignorée`);
           continue;
         }
-        showToast(`🎬 Compression de "${file.name}"...`);
-        const result = await compressVideo(file, MAX_VIDEO_SECONDS);
+        let result;
+        try {
+          result = await processVideo(file, MAX_VIDEO_SECONDS);
+        } catch (convErr) {
+          // Le convertisseur n'est pas utilisable sur cet hébergement (pas de SharedArrayBuffer,
+          // ou échec réseau). On tente un repli : stocker le fichier tel quel SI le navigateur
+          // sait le lire nativement (mp4/webm/mov standards). Les formats comme AVI/MJPEG
+          // resteront en erreur explicite, car aucun navigateur ne peut les lire de toute façon.
+          console.warn('Conversion vidéo indisponible, tentative de repli natif:', convErr.message);
+          const canPlayNative = await canBrowserPlayVideo(file);
+          if (!canPlayNative) {
+            throw new Error('conversion vidéo indisponible sur cet hébergement, et ce format (' + (guessExt(file.name) || file.type || 'inconnu') + ') n\'est pas lisible nativement par le navigateur. ' + convErr.message);
+          }
+          showToast(`⚠️ Convertisseur indisponible — "${file.name}" ajoutée sans compression`);
+          const dataUrl = await blobToDataUrl(file);
+          const poster = await generateNativePoster(dataUrl).catch(() => null);
+          result = { dataUrl, poster };
+        }
+        if (!useFirebase) {
+          const finalMB = (result.dataUrl.length * 0.75) / 1024 / 1024; // estimation taille réelle depuis base64
+          if (finalMB > 4) {
+            showToast(`⚠️ Vidéo (${finalMB.toFixed(1)} Mo) — risque de dépasser le stockage local, envisage la carte publique`);
+          }
+        }
         folder.photos.push({ name: file.name, dataUrl: result.dataUrl, poster: result.poster || null, type: 'video' });
         renderFolders();
-      } else if (file.type.startsWith('image/')) {
+        showToast(`✅ "${file.name}" ajoutée`);
+      } else if (isImage) {
         const dataUrl = await compressImage(file);
         folder.photos.push({ name: file.name, dataUrl, type: 'image' });
         renderFolders();
       } else {
-        showToast(`⚠️ "${file.name}" : type de fichier non supporté`);
+        showToast(`⚠️ "${file.name}" : type de fichier non reconnu`);
       }
     } catch (e) {
       console.error('Erreur ajout fichier', file.name, e);
@@ -1302,126 +1382,109 @@ function compressImage(file) {
   });
 }
 
-// Recompresse une vidéo : limite à MAX_VIDEO_SECONDS, redimensionne, ré-encode en webm
-// via MediaRecorder pour réduire fortement le poids avant stockage en base64.
-// Génère aussi un "poster" (image fixe) pour un affichage fiable en miniature,
-// car les vignettes <video> ne se peignent pas de façon fiable sur tous les navigateurs.
-function compressVideo(file, maxSeconds) {
-  return new Promise((resolve, reject) => {
+// Transcode n'importe quel format vidéo source (AVI/MJPEG, MOV, MP4 exotique, etc.)
+// en MP4 H.264/AAC standard, lisible par tous les navigateurs. Coupe à maxSeconds,
+// redimensionne (max 640px de large) et génère une vignette JPEG (poster) au passage.
+async function processVideo(file, maxSeconds) {
+  showToast('🧰 Préparation du convertisseur vidéo (premier import seulement)...');
+  const ffmpeg = await loadFfmpeg();
+
+  const inName = 'in_' + Date.now() + (guessExt(file.name) || '.bin');
+  const outName = 'out_' + Date.now() + '.mp4';
+  const posterName = 'poster_' + Date.now() + '.jpg';
+
+  const { fetchFile } = FFmpegUtil;
+  await ffmpeg.writeFile(inName, await fetchFile(file));
+
+  showToast(`🎬 Conversion de "${file.name}"...`);
+  try {
+    await ffmpeg.exec([
+      '-i', inName,
+      '-t', String(maxSeconds),
+      '-vf', 'scale=640:-2:force_original_aspect_ratio=decrease,format=yuv420p',
+      '-c:v', 'libx264', '-profile:v', 'baseline', '-level', '3.0',
+      '-preset', 'ultrafast', '-crf', '28',
+      '-c:a', 'aac', '-b:a', '64k', '-ac', '1',
+      '-movflags', '+faststart',
+      outName
+    ]);
+  } catch (e) {
+    throw new Error('conversion vidéo échouée — fichier corrompu ou format non reconnu par le convertisseur');
+  }
+
+  const outData = await ffmpeg.readFile(outName);
+  const videoBlob = new Blob([outData.buffer], { type: 'video/mp4' });
+  const dataUrl = await blobToDataUrl(videoBlob);
+
+  // Vignette : extrait une frame à ~0.3s
+  let poster = null;
+  try {
+    await ffmpeg.exec(['-i', outName, '-ss', '0.3', '-frames:v', '1', posterName]);
+    const posterData = await ffmpeg.readFile(posterName);
+    const posterBlob = new Blob([posterData.buffer], { type: 'image/jpeg' });
+    poster = await blobToDataUrl(posterBlob);
+    await ffmpeg.deleteFile(posterName);
+  } catch (e) { /* poster optionnel, on continue sans si ça échoue */ }
+
+  try { await ffmpeg.deleteFile(inName); } catch(e) {}
+  try { await ffmpeg.deleteFile(outName); } catch(e) {}
+
+  return { dataUrl, poster };
+}
+
+function guessExt(name) {
+  const m = (name || '').match(/\.[a-z0-9]+$/i);
+  return m ? m[0] : '';
+}
+
+// Vérifie si le navigateur déclare savoir lire ce type vidéo nativement.
+// Utilisé uniquement en repli quand le convertisseur ffmpeg.wasm est indisponible.
+function canBrowserPlayVideo(file) {
+  return new Promise((resolve) => {
+    const v = document.createElement('video');
+    const type = file.type || '';
+    if (type && v.canPlayType(type) === '') { resolve(false); return; }
+    // Test concret de décodage de la première frame, plus fiable que canPlayType seul
     const url = URL.createObjectURL(file);
-    const video = document.createElement('video');
-    video.src = url;
-    video.muted = true;
-    video.playsInline = true;
-
-    if (typeof MediaRecorder === 'undefined') {
-      // Pas de support MediaRecorder (vieux Safari) -> fallback : stocker tel quel si raisonnable
-      video.onloadeddata = () => {
-        captureFrame(video, video.videoWidth || 320, video.videoHeight || 240).then(poster => {
-          URL.revokeObjectURL(url);
-          const reader = new FileReader();
-          reader.onload = () => resolve({ dataUrl: reader.result, poster });
-          reader.onerror = () => reject(new Error('lecture vidéo impossible'));
-          reader.readAsDataURL(file);
-        }).catch(() => {
-          URL.revokeObjectURL(url);
-          const reader = new FileReader();
-          reader.onload = () => resolve({ dataUrl: reader.result, poster: null });
-          reader.onerror = () => reject(new Error('lecture vidéo impossible'));
-          reader.readAsDataURL(file);
-        });
-      };
-      video.onerror = () => { URL.revokeObjectURL(url); reject(new Error('vidéo illisible')); };
-      return;
-    }
-
-    video.onloadedmetadata = () => {
-      try {
-        const MAX_DIM = 640;
-        let w = video.videoWidth || 640, h = video.videoHeight || 360;
-        if (w > MAX_DIM) { h = Math.round(h * MAX_DIM / w); w = MAX_DIM; }
-        if (h > MAX_DIM) { w = Math.round(w * MAX_DIM / h); h = MAX_DIM; }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        const ctx = canvas.getContext('2d');
-
-        const stream = canvas.captureStream(25);
-        let mimeType = 'video/webm;codecs=vp8';
-        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
-        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = '';
-
-        const recorder = new MediaRecorder(stream, mimeType ? { mimeType, videoBitsPerSecond: 800000 } : { videoBitsPerSecond: 800000 });
-        const chunks = [];
-        let posterDataUrl = null;
-        recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
-        recorder.onerror = e => { cleanup(); reject(new Error('échec compression vidéo')); };
-        recorder.onstop = () => {
-          cleanup();
-          if (!chunks.length) { reject(new Error('aucune donnée vidéo capturée')); return; }
-          const blob = new Blob(chunks, { type: mimeType || 'video/webm' });
-          const reader = new FileReader();
-          reader.onload = () => resolve({ dataUrl: reader.result, poster: posterDataUrl });
-          reader.onerror = () => reject(new Error('encodage final impossible'));
-          reader.readAsDataURL(blob);
-        };
-
-        let drawTimer = null;
-        let stopTimer = null;
-        function cleanup() {
-          if (drawTimer) clearInterval(drawTimer);
-          if (stopTimer) clearTimeout(stopTimer);
-          video.pause();
-          URL.revokeObjectURL(url);
-        }
-
-        video.currentTime = 0;
-        let frameCount = 0;
-        video.onplay = () => {
-          drawTimer = setInterval(() => {
-            try {
-              ctx.drawImage(video, 0, 0, w, h);
-              frameCount++;
-              // Capture la 2e frame dessinée comme poster (la 1ère peut être noire)
-              if (frameCount === 2) posterDataUrl = canvas.toDataURL('image/jpeg', 0.8);
-            } catch(e) {}
-          }, 1000 / 25);
-        };
-        video.onended = () => { try { recorder.stop(); } catch(e) {} };
-
-        recorder.start();
-        video.play().catch(err => { cleanup(); reject(new Error('lecture vidéo impossible : ' + err.message)); });
-
-        const durationLimitMs = Math.min((video.duration || maxSeconds) * 1000, maxSeconds * 1000);
-        stopTimer = setTimeout(() => {
-          try { recorder.stop(); } catch(e) {}
-        }, durationLimitMs + 150);
-
-      } catch (e) {
-        URL.revokeObjectURL(url);
-        reject(e);
-      }
-    };
-    video.onerror = () => { URL.revokeObjectURL(url); reject(new Error('vidéo illisible')); };
+    const test = document.createElement('video');
+    test.muted = true;
+    test.preload = 'metadata';
+    const cleanup = () => URL.revokeObjectURL(url);
+    const timeout = setTimeout(() => { cleanup(); resolve(false); }, 4000);
+    test.onloadedmetadata = () => { clearTimeout(timeout); cleanup(); resolve(true); };
+    test.onerror = () => { clearTimeout(timeout); cleanup(); resolve(false); };
+    test.src = url;
   });
 }
 
-// Capture une frame d'une vidéo HTMLVideoElement déjà chargée, sous forme de dataURL JPEG
-function captureFrame(video, w, h) {
+// Génère un poster depuis une dataURL vidéo déjà lisible nativement (cas de repli)
+function generateNativePoster(dataUrl) {
   return new Promise((resolve, reject) => {
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      const grab = () => {
-        try {
-          ctx.drawImage(video, 0, 0, w, h);
-          resolve(canvas.toDataURL('image/jpeg', 0.8));
-        } catch(e) { reject(e); }
-      };
-      if (video.readyState >= 2) grab();
-      else video.addEventListener('loadeddata', grab, { once: true });
-    } catch(e) { reject(e); }
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.src = dataUrl;
+    const timeout = setTimeout(() => reject(new Error('timeout vignette')), 5000);
+    video.addEventListener('loadeddata', () => {
+      try {
+        const w = video.videoWidth || 320, h = video.videoHeight || 240;
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(video, 0, 0, w, h);
+        clearTimeout(timeout);
+        resolve(canvas.toDataURL('image/jpeg', 0.8));
+      } catch (e) { clearTimeout(timeout); reject(e); }
+    }, { once: true });
+    video.addEventListener('error', () => { clearTimeout(timeout); reject(new Error('vidéo illisible')); }, { once: true });
+  });
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('encodage final impossible'));
+    reader.readAsDataURL(blob);
   });
 }
 
@@ -1499,6 +1562,7 @@ function showLb() {
     imgEl.style.display = 'none';
     imgEl.src = '';
     vidEl.style.display = 'block';
+    vidEl.onerror = () => showToast('❌ Impossible de lire cette vidéo (format non supporté par ce navigateur)');
     vidEl.src = ph.dataUrl;
   } else {
     vidEl.pause();
@@ -1690,7 +1754,7 @@ async function persist() {
     catch(e) { showToast('❌ Erreur sync: ' + e.message); }
   } else {
     try { localStorage.setItem('chassePoints', JSON.stringify(points)); }
-    catch(e) { showToast('⚠️ Stockage plein — réduis la taille des photos'); }
+    catch(e) { showToast('⚠️ Stockage local plein — passe en carte publique (Firebase) ou supprime des photos/vidéos'); }
   }
 }
 
