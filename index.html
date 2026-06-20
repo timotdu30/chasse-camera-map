@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>🦌 Chasse Suisse</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0f1a0a;
+  --surface:   #162010;
+  --surface2:  #1e2d14;
+  --border:    #2a3f1a;
+  --forest:    #2d5016;
+  --green:     #5cb82e;
+  --green-dim: #3d7f1e;
+  --amber:     #e8a020;
+  --red:       #c0392b;
+  --text:      #dde8d0;
+  --text-dim:  #7a9460;
+  --white:     #ffffff;
+  --radius:    12px;
+  --shadow:    0 8px 32px rgba(0,0,0,0.5);
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ═══ FIREBASE CONFIG SCREEN ═══ */
+#configScreen {
+  position: fixed; inset: 0;
+  background: var(--bg);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+#configScreen.hidden { display: none; }
+
+.config-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 36px;
+  max-width: 500px;
+  width: 100%;
+  box-shadow: var(--shadow);
+}
+.config-box h1 { font-size: 1.6rem; font-weight: 800; margin-bottom: 6px; }
+.config-box p  { color: var(--text-dim); font-size: 0.88rem; margin-bottom: 24px; line-height: 1.6; }
+.config-field  { margin-bottom: 14px; }
+.config-field label { display: block; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); margin-bottom: 6px; }
+.config-field input {
+  width: 100%; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 11px 14px; color: var(--text);
+  font-size: 0.88rem; outline: none; font-family: monospace;
+  transition: border-color 0.2s;
+}
+.config-field input:focus { border-color: var(--green); }
+
+/* ═══ HEADER ═══ */
+header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+  height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+  z-index: 400;
+}
+.logo { font-size: 1.5rem; }
+.logo-text { font-size: 1rem; font-weight: 800; color: var(--text); letter-spacing: -0.01em; }
+.logo-text span { color: var(--green); }
+.header-actions { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+.sync-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 6px var(--green);
+  animation: pulse 2s infinite;
+}
+.sync-dot.offline { background: var(--red); box-shadow: 0 0 6px var(--red); animation: none; }
+@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+.sync-label { font-size: 0.72rem; color: var(--text-dim); }
+
+/* ═══ BUTTONS ═══ */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 7px; padding: 10px 18px; border-radius: 10px; border: none;
+  font-family: inherit; font-size: 0.88rem; font-weight: 700;
+  cursor: pointer; transition: all 0.18s; white-space: nowrap; text-decoration: none;
+}
+.btn-primary   { background: var(--green); color: #fff; box-shadow: 0 4px 14px rgba(92,184,46,0.35); }
+.btn-primary:hover { background: #4da026; transform: translateY(-1px); box-shadow: 0 6px 18px rgba(92,184,46,0.4); }
+.btn-primary:active { transform: translateY(0); }
+.btn-primary.active { background: var(--amber); box-shadow: 0 4px 14px rgba(232,160,32,0.4); }
+.btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+.btn-secondary:hover { background: var(--forest); border-color: var(--green-dim); }
+.btn-danger    { background: rgba(192,57,43,0.15); color: #e57373; border: 1px solid rgba(192,57,43,0.3); }
+.btn-danger:hover { background: rgba(192,57,43,0.3); }
+.btn-sm { padding: 7px 12px; font-size: 0.8rem; border-radius: 8px; }
+.btn-icon { padding: 9px; width: 38px; height: 38px; }
+
+/* ═══ MAIN ═══ */
+.main { display: flex; flex: 1; overflow: hidden; }
+
+/* ═══ MAP ═══ */
+#map { flex: 1; z-index: 1; cursor: default; }
+#map.adding { cursor: crosshair; }
+
+.map-controls {
+  position: absolute; top: 70px; right: 10px; z-index: 300;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.map-controls .btn { box-shadow: var(--shadow); }
+
+/* ═══ SIDEBAR ═══ */
+.sidebar {
+  width: 310px; flex-shrink: 0;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.sidebar-header {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+}
+.sidebar-header h2 { font-size: 0.85rem; font-weight: 700; color: var(--text); flex:1; }
+.badge {
+  background: var(--green); color: #fff;
+  border-radius: 20px; padding: 2px 9px; font-size: 0.7rem; font-weight: 700;
+}
+.sidebar-search {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.sidebar-search input {
+  width: 100%; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 12px; color: var(--text);
+  font-size: 0.85rem; outline: none; font-family: inherit;
+}
+.sidebar-search input:focus { border-color: var(--green); }
+.sidebar-search input::placeholder { color: var(--text-dim); }
+
+.points-list { flex:1; overflow-y: auto; padding: 10px; }
+.points-list::-webkit-scrollbar { width: 3px; }
+.points-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.point-card {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 13px 14px; margin-bottom: 8px;
+  cursor: pointer; transition: all 0.15s; position: relative;
+}
+.point-card:hover { border-color: var(--green-dim); background: var(--forest); transform: translateX(2px); }
+.point-card.selected { border-color: var(--green); background: var(--forest); }
+.point-card-name { font-weight: 700; font-size: 0.92rem; color: var(--text); margin-bottom: 4px; }
+.point-card-coords { font-size: 0.7rem; color: var(--text-dim); font-family: monospace; margin-bottom: 6px; }
+.point-card-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.tag {
+  background: rgba(92,184,46,0.12); color: var(--green);
+  border: 1px solid rgba(92,184,46,0.25); border-radius: 6px;
+  padding: 2px 8px; font-size: 0.68rem; font-weight: 600;
+}
+.tag-count { background: rgba(232,160,32,0.12); color: var(--amber); border-color: rgba(232,160,32,0.3); }
+
+.empty-state {
+  text-align: center; padding: 50px 20px;
+  color: var(--text-dim); font-size: 0.85rem; line-height: 1.7;
+}
+.empty-state .icon { font-size: 3rem; margin-bottom: 14px; }
+
+/* ═══ MODE BANNER ═══ */
+.mode-banner {
+  display: none; position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: var(--amber); color: #1a1000;
+  padding: 12px 24px; border-radius: 30px;
+  font-size: 0.88rem; font-weight: 700; z-index: 1000;
+  box-shadow: 0 4px 20px rgba(232,160,32,0.5);
+  animation: floatIn 0.3s ease;
+}
+.mode-banner.visible { display: block; }
+@keyframes floatIn { from { opacity:0; transform: translateX(-50%) translateY(10px); } to { opacity:1; transform: translateX(-50%) translateY(0); } }
+
+/* ═══ MODAL ═══ */
+.overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.75); z-index: 2000;
+  align-items: center; justify-content: center; padding: 16px;
+}
+.overlay.open { display: flex; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 18px; width: 100%; max-width: 560px;
+  max-height: 92dvh; display: flex; flex-direction: column;
+  box-shadow: var(--shadow); animation: modalIn 0.25s ease;
+}
+@keyframes modalIn { from { opacity:0; transform: scale(0.96) translateY(8px); } }
+.modal-head {
+  background: var(--forest); border-radius: 18px 18px 0 0;
+  padding: 18px 20px; display: flex; align-items: center; gap: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.modal-head h2 { flex:1; font-size: 1.05rem; font-weight: 800; }
+.modal-body { padding: 20px; overflow-y: auto; flex:1; }
+.modal-body::-webkit-scrollbar { width: 3px; }
+.modal-body::-webkit-scrollbar-thumb { background: var(--border); }
+.modal-foot {
+  padding: 14px 20px; border-top: 1px solid var(--border);
+  display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;
+}
+
+/* FORM */
+.field { margin-bottom: 18px; }
+.field label {
+  display: block; font-size: 0.72rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-dim); margin-bottom: 7px;
+}
+.field input, .field textarea {
+  width: 100%; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 11px 14px; color: var(--text);
+  font-size: 0.9rem; outline: none; font-family: inherit;
+  transition: border-color 0.2s;
+}
+.field input:focus, .field textarea:focus { border-color: var(--green); }
+.field input[readonly] { opacity: 0.55; cursor: default; }
+
+/* ═══ DOSSIERS / FOLDERS ═══ */
+.folder-section { margin-top: 20px; }
+.folder-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.folder-item {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px; overflow: hidden;
+}
+.folder-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; cursor: pointer;
+  transition: background 0.15s;
+}
+.folder-header:hover { background: var(--forest); }
+.folder-icon { font-size: 1.1rem; }
+.folder-name { font-weight: 700; font-size: 0.88rem; flex:1; }
+.folder-count { font-size: 0.72rem; color: var(--text-dim); }
+.folder-chevron { font-size: 0.75rem; color: var(--text-dim); transition: transform 0.2s; }
+.folder-item.open .folder-chevron { transform: rotate(90deg); }
+.folder-photos {
+  display: none; padding: 0 12px 12px;
+}
+.folder-item.open .folder-photos { display: block; }
+.folder-photo-upload {
+  border: 2px dashed var(--border); border-radius: 8px;
+  padding: 14px; text-align: center; cursor: pointer;
+  color: var(--text-dim); font-size: 0.8rem;
+  transition: border-color 0.2s, background 0.2s;
+  margin-bottom: 8px;
+}
+.folder-photo-upload:hover { border-color: var(--green); background: rgba(92,184,46,0.05); }
+.photo-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+}
+.photo-thumb {
+  position: relative; aspect-ratio: 1;
+  border-radius: 7px; overflow: hidden; cursor: pointer;
+}
+.photo-thumb img {
+  width: 100%; height: 100%; object-fit: cover;
+  transition: transform 0.2s;
+}
+.photo-thumb:hover img { transform: scale(1.08); }
+.photo-del {
+  position: absolute; inset: 0; background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.15s; color: #fff; font-size: 1.2rem;
+  border: none; cursor: pointer; width: 100%;
+}
+.photo-thumb:hover .photo-del { opacity: 1; }
+
+.add-folder-row { display: flex; gap: 8px; }
+.add-folder-row input {
+  flex:1; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 9px; padding: 9px 12px; color: var(--text);
+  font-size: 0.85rem; outline: none; font-family: inherit;
+}
+.add-folder-row input:focus { border-color: var(--green); }
+
+/* ═══ LIGHTBOX ═══ */
+.lightbox {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.95); z-index: 4000;
+  flex-direction: column; align-items: center; justify-content: center;
+}
+.lightbox.open { display: flex; }
+.lightbox img { max-width: 94vw; max-height: 80dvh; border-radius: 10px; object-fit: contain; }
+.lightbox-close {
+  position: absolute; top: 16px; right: 20px;
+  background: rgba(255,255,255,0.1); border: none; color: #fff;
+  font-size: 1.4rem; cursor: pointer; border-radius: 50%;
+  width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s;
+}
+.lightbox-close:hover { background: rgba(255,255,255,0.25); }
+.lightbox-name { color: rgba(255,255,255,0.6); font-size: 0.8rem; margin-top: 10px; }
+.lightbox-nav { display: flex; gap: 16px; margin-top: 16px; }
+.lightbox-nav button {
+  background: rgba(255,255,255,0.12); color: #fff; border: none;
+  border-radius: 10px; padding: 9px 20px; font-size: 0.88rem;
+  cursor: pointer; font-family: inherit; font-weight: 600;
+  transition: background 0.15s;
+}
+.lightbox-nav button:hover { background: rgba(255,255,255,0.25); }
+
+/* ═══ TOAST ═══ */
+.toast {
+  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text); padding: 10px 20px; border-radius: 20px;
+  font-size: 0.85rem; font-weight: 600; z-index: 5000;
+  box-shadow: var(--shadow); pointer-events: none;
+  opacity: 0; transition: opacity 0.3s;
+}
+.toast.show { opacity: 1; }
+
+/* ═══ GOOGLE AUTH BUTTON ═══ */
+.btn-google {
+  background: #fff; color: #3c4043; border: 1px solid #dadce0;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.btn-google:hover { background: #f8f9fa; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+.btn-google svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+/* ═══ GPS INPUT ═══ */
+#coordLat, #coordLng {
+  transition: border-color 0.2s;
+}
+#coordLat:focus, #coordLng:focus { border-color: var(--green) !important; }
+@media (max-width: 640px) {
+  .sidebar {
+    position: fixed; bottom: 0; left: 0; right: 0; width: 100%;
+    height: 240px; border-left: none; border-top: 1px solid var(--border); z-index: 300;
+  }
+  .btn .label { display: none; }
+  .map-controls { top: 66px; right: 8px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ CONFIG FIREBASE ═══ -->
+<div id="configScreen">
+  <div class="config-box">
+    <h1>🔥 Configuration Firebase</h1>
+    <p>Pour synchroniser la carte entre tous les utilisateurs, entre les infos de ton projet Firebase. Tu n'as à faire ça qu'une seule fois — les autres n'auront qu'à ouvrir le même fichier HTML.</p>
+    <div class="config-field">
+      <label>API Key</label>
+      <input id="cfg-apiKey" placeholder="AIzaSy..." />
+    </div>
+    <div class="config-field">
+      <label>Auth Domain</label>
+      <input id="cfg-authDomain" placeholder="mon-projet.firebaseapp.com" />
+    </div>
+    <div class="config-field">
+      <label>Database URL</label>
+      <input id="cfg-dbUrl" placeholder="https://mon-projet-default-rtdb.firebaseio.com" />
+    </div>
+    <div class="config-field">
+      <label>Project ID</label>
+      <input id="cfg-projectId" placeholder="mon-projet-12345" />
+    </div>
+    <div style="margin-top:22px; display:flex; gap:10px; flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="saveConfig()" style="flex:1">🚀 Lancer la carte</button>
+      <button class="btn btn-secondary" onclick="skipConfig()" style="flex:1">Utiliser sans sync (local)</button>
+    </div>
+    <div style="margin-top:12px;display:flex;align-items:center;gap:10px;">
+      <div style="flex:1;height:1px;background:var(--border);"></div>
+      <span style="font-size:0.72rem;color:var(--text-dim);">après connexion Firebase</span>
+      <div style="flex:1;height:1px;background:var(--border);"></div>
+    </div>
+    <button class="btn btn-google" onclick="saveConfigAndSignIn()" style="width:100%;margin-top:10px;justify-content:center;">
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+      Se connecter avec Google
+    </button>
+    <p style="margin-top:12px; font-size:0.72rem; color:var(--text-dim); text-align:center;">
+      Sans Firebase, la carte fonctionne uniquement sur cet appareil.
+    </p>
+  </div>
+</div>
+
+<!-- ═══ APP ═══ -->
+<header>
+  <span class="logo">🦌</span>
+  <span class="logo-text">Chasse <span>Suisse</span></span>
+  <div class="header-actions">
+    <div id="syncStatus" style="display:flex;align-items:center;gap:6px;">
+      <div class="sync-dot offline" id="syncDot"></div>
+      <span class="sync-label" id="syncLabel">Local</span>
+    </div>
+    <img id="userAvatar" src="" alt="avatar" style="display:none;width:32px;height:32px;border-radius:50%;border:2px solid var(--green);cursor:pointer;" onclick="signOut()" title="Se déconnecter" />
+    <button class="btn btn-secondary btn-sm" id="btnGoogle" onclick="signInWithGoogle()" title="Se connecter avec Google">
+      <span>🔑</span><span class="label">Google</span>
+    </button>
+    <button class="btn btn-primary" id="btnAdd" onclick="toggleAddMode()">
+      <span>📍</span><span class="label">Ajouter un point</span>
+    </button>
+    <button class="btn btn-secondary btn-sm" onclick="openModalByGPS()" title="Ajouter à ma position GPS">
+      <span>📡</span><span class="label">Ma position</span>
+    </button>
+  </div>
+</header>
+
+<div class="main">
+  <div id="map">
+    <div class="map-controls">
+      <button class="btn btn-secondary btn-sm" onclick="toggleLayer()" id="btnLayer">🛰 Satellite</button>
+    </div>
+  </div>
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <h2>Emplacements</h2>
+      <span class="badge" id="pointCount">0</span>
+    </div>
+    <div class="sidebar-search">
+      <input type="text" placeholder="🔍  Chercher un emplacement..." oninput="filterPoints(this.value)" />
+    </div>
+    <div class="points-list" id="pointsList">
+      <div class="empty-state">
+        <div class="icon">📍</div>
+        Appuie sur <strong>Ajouter un point</strong> puis clique sur la carte.
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="mode-banner" id="modeBanner">🎯 Clique sur la carte pour placer la caméra</div>
+
+<!-- ═══ MODAL POINT ═══ -->
+<div class="overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <span style="font-size:1.3rem">📍</span>
+      <h2 id="modalTitle">Nouvel emplacement</h2>
+      <button class="btn btn-icon btn-secondary" onclick="closeModal()" style="font-size:1rem">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Nom de l'emplacement</label>
+        <input type="text" id="pointName" placeholder="ex: Lisière nord, Passage du ruisseau..." />
+      </div>
+      <div class="field">
+        <label>Coordonnées GPS</label>
+        <div style="display:flex;gap:8px;align-items:stretch;">
+          <input type="text" id="pointCoords" placeholder="ex: 46.85123, 8.12456" oninput="onCoordsInput(this.value)" style="flex:1;" />
+          <button class="btn btn-secondary btn-sm" onclick="useMyLocation()" title="Utiliser ma position GPS" style="white-space:nowrap;flex-shrink:0;">
+            📡 Ma position
+          </button>
+        </div>
+        <div id="coordsError" style="color:var(--red);font-size:0.72rem;margin-top:4px;display:none;">⚠️ Format invalide — entrer: latitude, longitude (ex: 46.85, 8.12)</div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <input type="number" id="coordLat" placeholder="Latitude (ex: 46.8)" step="0.00001" oninput="onLatLngInput()" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:0.82rem;outline:none;font-family:monospace;" />
+          <input type="number" id="coordLng" placeholder="Longitude (ex: 8.2)" step="0.00001" oninput="onLatLngInput()" style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:0.82rem;outline:none;font-family:monospace;" />
+        </div>
+        <div style="font-size:0.7rem;color:var(--text-dim);margin-top:5px;">💡 Entrer les coordonnées manuellement ou cliquer sur la carte</div>
+      </div>
+
+      <!-- DOSSIERS -->
+      <div class="folder-section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <span style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-dim)">📁 Dossiers par animal</span>
+        </div>
+        <div class="folder-list" id="folderList"></div>
+        <div class="add-folder-row">
+          <input type="text" id="newFolderName" placeholder="ex: Chamois, Cerf, Chevreuil..." onkeydown="if(event.key==='Enter') addFolder()" />
+          <button class="btn btn-primary btn-sm" onclick="addFolder()">＋ Dossier</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-danger btn-sm" id="btnDelete" onclick="deletePoint()" style="display:none;margin-right:auto">🗑 Supprimer</button>
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="savePoint()">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ LIGHTBOX ═══ -->
+<div class="lightbox" id="lightbox">
+  <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+  <img id="lbImg" src="" alt=""/>
+  <div class="lightbox-name" id="lbName"></div>
+  <div class="lightbox-nav">
+    <button onclick="lbNav(-1)">← Précédent</button>
+    <button onclick="lbNav(1)">Suivant →</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<input type="file" id="fileInput" multiple accept="image/*" style="display:none" onchange="handleFileInput(this)"/>
+
+<script>
+// ══════════════════════════════════════════
+// CONFIG & FIREBASE
+// ══════════════════════════════════════════
+let db = null;
+let useFirebase = false;
+
+function saveConfig() {
+  const cfg = {
+    apiKey:      document.getElementById('cfg-apiKey').value.trim(),
+    authDomain:  document.getElementById('cfg-authDomain').value.trim(),
+    databaseURL: document.getElementById('cfg-dbUrl').value.trim(),
+    projectId:   document.getElementById('cfg-projectId').value.trim(),
+  };
+  if (!cfg.apiKey || !cfg.databaseURL) { showToast('⚠️ API Key et Database URL requis'); return; }
+  localStorage.setItem('fbConfig', JSON.stringify(cfg));
+  initFirebase(cfg);
+}
+
+function saveConfigAndSignIn() {
+  const cfg = {
+    apiKey:      document.getElementById('cfg-apiKey').value.trim(),
+    authDomain:  document.getElementById('cfg-authDomain').value.trim(),
+    databaseURL: document.getElementById('cfg-dbUrl').value.trim(),
+    projectId:   document.getElementById('cfg-projectId').value.trim(),
+  };
+  if (!cfg.apiKey || !cfg.authDomain || !cfg.databaseURL) { showToast('⚠️ API Key, Auth Domain et Database URL requis'); return; }
+  localStorage.setItem('fbConfig', JSON.stringify(cfg));
+  initFirebase(cfg, true);
+}
+
+function skipConfig() {
+  localStorage.setItem('fbConfig', 'local');
+  document.getElementById('configScreen').classList.add('hidden');
+  if (!appInited) { appInited = true; initApp(); }
+}
+
+function initFirebase(cfg, autoSignIn = false) {
+  // Load Firebase SDKs dynamically
+  const sdks = [
+    'https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js',
+    'https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js',
+    'https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js'
+  ];
+  let loaded = 0;
+  sdks.forEach(src => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => { if (++loaded === sdks.length) { connectFirebase(cfg); if (autoSignIn) setTimeout(signInWithGoogle, 800); } };
+    s.onerror = () => { showToast('❌ Impossible de charger Firebase — mode local'); skipConfig(); };
+    document.head.appendChild(s);
+  });
+}
+
+let auth = null;
+let currentUser = null;
+let appInited = false;
+
+function connectFirebase(cfg) {
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(cfg);
+    db = firebase.database();
+    auth = firebase.auth();
+    useFirebase = true;
+
+    document.getElementById('syncDot').classList.remove('offline');
+    document.getElementById('syncLabel').textContent = 'Connecté';
+    document.getElementById('configScreen').classList.add('hidden');
+
+    if (!appInited) { appInited = true; initApp(); }
+
+    // Real-time listener
+    db.ref('points').on('value', snap => {
+      const data = snap.val();
+      points = data ? Object.values(data) : [];
+      rebuildMarkers();
+      renderSidebar();
+    });
+
+    // Listen for auth state changes
+    auth.onAuthStateChanged(user => {
+      currentUser = user;
+      updateUserUI();
+    });
+
+  } catch(e) {
+    showToast('❌ Erreur Firebase: ' + e.message);
+  }
+}
+
+function signInWithGoogle() {
+  if (!auth) { showToast('⚠️ Firebase requis pour la connexion Google'); return; }
+  const provider = new firebase.auth.GoogleAuthProvider();
+  auth.signInWithPopup(provider)
+    .then(result => {
+      currentUser = result.user;
+      updateUserUI();
+      showToast('✅ Connecté en tant que ' + currentUser.displayName);
+    })
+    .catch(e => {
+      showToast('❌ Connexion échouée: ' + e.message);
+    });
+}
+
+function signOut() {
+  if (!auth) return;
+  auth.signOut().then(() => {
+    currentUser = null;
+    updateUserUI();
+    showToast('👋 Déconnecté');
+  });
+}
+
+function updateUserUI() {
+  const btn = document.getElementById('btnGoogle');
+  const avatar = document.getElementById('userAvatar');
+  if (!btn) return;
+  if (currentUser) {
+    btn.innerHTML = `<span>👤</span><span class="label">${currentUser.displayName?.split(' ')[0] || 'Profil'}</span>`;
+    btn.onclick = signOut;
+    btn.title = 'Cliquer pour se déconnecter';
+    if (avatar && currentUser.photoURL) {
+      avatar.src = currentUser.photoURL;
+      avatar.style.display = 'block';
+      btn.style.display = 'none';
+    } else if (avatar) {
+      avatar.style.display = 'none';
+      btn.style.display = 'inline-flex';
+    }
+  } else {
+    btn.innerHTML = `<span>🔑</span><span class="label">Google</span>`;
+    btn.onclick = signInWithGoogle;
+    btn.title = 'Se connecter avec Google';
+    if (avatar) avatar.style.display = 'none';
+    btn.style.display = 'inline-flex';
+  }
+}
+
+// ══════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════
+let points = [];
+let addingMode = false;
+let editingId = null;
+let currentFolders = []; // [{id, name, photos:[{name,dataUrl}]}]
+let activeFolderUpload = null;
+let lbPhotos = [], lbIndex = 0;
+let markers = {};
+let selectedId = null;
+
+// ══════════════════════════════════════════
+// MAP
+// ══════════════════════════════════════════
+let map, osmLayer, satLayer, usingSat = false;
+
+function initApp() {
+  // Load saved points if local
+  if (!useFirebase) {
+    points = JSON.parse(localStorage.getItem('chassePoints') || '[]');
+  }
+
+  map = L.map('map', { center: [46.8, 8.2], zoom: 8, zoomControl: true });
+
+  osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap', maxZoom: 19
+  });
+
+  satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '© Esri World Imagery', maxZoom: 19
+  });
+
+  osmLayer.addTo(map);
+
+  map.on('click', e => {
+    if (!addingMode) return;
+    toggleAddMode();
+    openModal(null, e.latlng.lat, e.latlng.lng);
+  });
+
+  points.forEach(p => addMarker(p));
+  renderSidebar();
+}
+
+function toggleLayer() {
+  usingSat = !usingSat;
+  if (usingSat) { map.removeLayer(osmLayer); satLayer.addTo(map); }
+  else          { map.removeLayer(satLayer); osmLayer.addTo(map); }
+  document.getElementById('btnLayer').textContent = usingSat ? '🗺 Plan' : '🛰 Satellite';
+}
+
+function makeIcon(selected) {
+  const color = selected ? '#e8a020' : '#5cb82e';
+  const shadow = selected ? 'rgba(232,160,32,0.5)' : 'rgba(92,184,46,0.4)';
+  return L.divIcon({
+    html: `<div style="width:30px;height:30px;background:${color};border:2.5px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 3px 10px ${shadow};"></div>`,
+    iconSize: [30, 30], iconAnchor: [15, 30], className: ''
+  });
+}
+
+function addMarker(p) {
+  const m = L.marker([p.lat, p.lng], { icon: makeIcon(false) }).addTo(map);
+  m.bindPopup(makePopup(p), { maxWidth: 280, minWidth: 200 });
+  m.on('click', () => { highlightSidebar(p.id); });
+  markers[p.id] = m;
+}
+
+function makePopup(p) {
+  const folders = p.folders || [];
+  let totalPhotos = folders.reduce((s, f) => s + (f.photos||[]).length, 0);
+  let photosHtml = '';
+  folders.forEach(f => {
+    (f.photos||[]).slice(0, 3).forEach((ph, i) => {
+      photosHtml += `<img src="${ph.dataUrl}" onclick="openLbPoint('${p.id}','${f.id}',${i})"
+        style="width:58px;height:58px;object-fit:cover;border-radius:7px;cursor:pointer;border:2px solid #2d5016;" />`;
+    });
+  });
+  return `
+    <div style="font-family:'Inter',system-ui;padding:2px;">
+      <div style="font-weight:800;font-size:0.95rem;color:#162010;margin-bottom:3px;">${p.name}</div>
+      <div style="font-size:0.7rem;color:#7a9460;font-family:monospace;margin-bottom:8px;">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</div>
+      ${folders.length ? `<div style="font-size:0.75rem;color:#555;margin-bottom:6px;">📁 ${folders.map(f=>f.name).join(' · ')}</div>` : ''}
+      ${photosHtml ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;">${photosHtml}</div>` : ''}
+      ${totalPhotos > 0 ? `<div style="font-size:0.72rem;color:#7a9460;margin-bottom:8px;">📸 ${totalPhotos} photo${totalPhotos>1?'s':''} au total</div>` : ''}
+      <button onclick="openModal('${p.id}')" style="width:100%;background:#2d5016;color:#dde8d0;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:700;font-size:0.82rem;font-family:inherit;">✏️ Modifier / Voir photos</button>
+    </div>`;
+}
+
+function rebuildMarkers() {
+  Object.values(markers).forEach(m => map.removeLayer(m));
+  markers = {};
+  points.forEach(p => addMarker(p));
+}
+
+// ══════════════════════════════════════════
+// ADD MODE
+// ══════════════════════════════════════════
+function toggleAddMode() {
+  addingMode = !addingMode;
+  document.getElementById('btnAdd').classList.toggle('active', addingMode);
+  document.getElementById('map').classList.toggle('adding', addingMode);
+  document.getElementById('modeBanner').classList.toggle('visible', addingMode);
+}
+
+// ══════════════════════════════════════════
+// MODAL
+// ══════════════════════════════════════════
+function openModal(id, lat, lng) {
+  editingId = id;
+  if (id) {
+    const p = points.find(x => x.id === id);
+    document.getElementById('modalTitle').textContent = p.name || 'Emplacement';
+    document.getElementById('pointName').value = p.name;
+    setCoords(p.lat, p.lng);
+    currentFolders = JSON.parse(JSON.stringify(p.folders || []));
+    document.getElementById('btnDelete').style.display = 'inline-flex';
+    document.getElementById('modalOverlay').dataset.lat = p.lat;
+    document.getElementById('modalOverlay').dataset.lng = p.lng;
+  } else {
+    document.getElementById('modalTitle').textContent = 'Nouvel emplacement';
+    document.getElementById('pointName').value = '';
+    if (lat !== undefined && lng !== undefined) {
+      setCoords(lat, lng);
+      document.getElementById('modalOverlay').dataset.lat = lat;
+      document.getElementById('modalOverlay').dataset.lng = lng;
+    } else {
+      document.getElementById('pointCoords').value = '';
+      document.getElementById('coordLat').value = '';
+      document.getElementById('coordLng').value = '';
+      document.getElementById('modalOverlay').dataset.lat = '';
+      document.getElementById('modalOverlay').dataset.lng = '';
+    }
+    currentFolders = [];
+    document.getElementById('btnDelete').style.display = 'none';
+  }
+  document.getElementById('coordsError').style.display = 'none';
+  renderFolders();
+  document.getElementById('modalOverlay').classList.add('open');
+  setTimeout(() => document.getElementById('pointName').focus(), 100);
+}
+
+function setCoords(lat, lng) {
+  document.getElementById('pointCoords').value = `${parseFloat(lat).toFixed(5)}, ${parseFloat(lng).toFixed(5)}`;
+  document.getElementById('coordLat').value = parseFloat(lat).toFixed(5);
+  document.getElementById('coordLng').value = parseFloat(lng).toFixed(5);
+  document.getElementById('modalOverlay').dataset.lat = lat;
+  document.getElementById('modalOverlay').dataset.lng = lng;
+}
+
+function onCoordsInput(val) {
+  document.getElementById('coordsError').style.display = 'none';
+  const parts = val.split(',').map(s => s.trim());
+  if (parts.length === 2) {
+    const lat = parseFloat(parts[0]), lng = parseFloat(parts[1]);
+    if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+      document.getElementById('coordLat').value = lat.toFixed(5);
+      document.getElementById('coordLng').value = lng.toFixed(5);
+      document.getElementById('modalOverlay').dataset.lat = lat;
+      document.getElementById('modalOverlay').dataset.lng = lng;
+      // Move map preview
+      if (map) map.setView([lat, lng], Math.max(map.getZoom(), 13), { animate: true });
+      return;
+    }
+  }
+  if (val.length > 5) document.getElementById('coordsError').style.display = 'block';
+}
+
+function onLatLngInput() {
+  const lat = parseFloat(document.getElementById('coordLat').value);
+  const lng = parseFloat(document.getElementById('coordLng').value);
+  document.getElementById('coordsError').style.display = 'none';
+  if (!isNaN(lat) && !isNaN(lng)) {
+    document.getElementById('pointCoords').value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    document.getElementById('modalOverlay').dataset.lat = lat;
+    document.getElementById('modalOverlay').dataset.lng = lng;
+    if (map) map.setView([lat, lng], Math.max(map.getZoom(), 13), { animate: true });
+  }
+}
+
+function useMyLocation() {
+  if (!navigator.geolocation) { showToast('❌ Géolocalisation non supportée'); return; }
+  showToast('📡 Localisation en cours...');
+  navigator.geolocation.getCurrentPosition(pos => {
+    const lat = pos.coords.latitude, lng = pos.coords.longitude;
+    setCoords(lat, lng);
+    if (map) map.setView([lat, lng], 15, { animate: true });
+    showToast('✅ Position GPS obtenue !');
+  }, err => {
+    showToast('❌ Impossible d\'obtenir la position: ' + err.message);
+  }, { enableHighAccuracy: true, timeout: 10000 });
+}
+
+// Override the button in the header to also allow opening modal directly by GPS
+function openModalByGPS() {
+  openModal(null);
+  document.getElementById('modalTitle').textContent = 'Nouvel emplacement (GPS)';
+  setTimeout(() => useMyLocation(), 300);
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('open');
+  editingId = null;
+  currentFolders = [];
+  activeFolderUpload = null;
+}
+
+async function savePoint() {
+  const name = document.getElementById('pointName').value.trim() || 'Emplacement sans nom';
+  const lat  = parseFloat(document.getElementById('modalOverlay').dataset.lat);
+  const lng  = parseFloat(document.getElementById('modalOverlay').dataset.lng);
+
+  if (isNaN(lat) || isNaN(lng)) {
+    showToast('⚠️ Entrer des coordonnées GPS valides');
+    document.getElementById('coordsError').style.display = 'block';
+    return;
+  }
+
+  if (editingId) {
+    const p = points.find(x => x.id === editingId);
+    p.name = name; p.folders = currentFolders;
+    if (markers[p.id]) markers[p.id].setPopupContent(makePopup(p));
+  } else {
+    const p = { id: Date.now().toString(), name, lat, lng, folders: currentFolders };
+    points.push(p);
+    addMarker(p);
+  }
+
+  await persist();
+  renderSidebar();
+  closeModal();
+  showToast('✅ Sauvegardé !');
+}
+
+async function deletePoint() {
+  if (!editingId) return;
+  if (!confirm('Supprimer cet emplacement et toutes ses photos ?')) return;
+  if (markers[editingId]) { map.removeLayer(markers[editingId]); delete markers[editingId]; }
+  points = points.filter(x => x.id !== editingId);
+  await persist();
+  renderSidebar();
+  closeModal();
+  showToast('🗑 Supprimé');
+}
+
+// ══════════════════════════════════════════
+// FOLDERS
+// ══════════════════════════════════════════
+function addFolder() {
+  const inp = document.getElementById('newFolderName');
+  const name = inp.value.trim();
+  if (!name) return;
+  currentFolders.push({ id: Date.now().toString(), name, photos: [] });
+  inp.value = '';
+  renderFolders();
+}
+
+function deleteFolder(fid) {
+  if (!confirm('Supprimer ce dossier et ses photos ?')) return;
+  currentFolders = currentFolders.filter(f => f.id !== fid);
+  renderFolders();
+}
+
+function toggleFolder(fid) {
+  const el = document.getElementById('folder-' + fid);
+  el.classList.toggle('open');
+}
+
+function triggerFolderUpload(fid) {
+  activeFolderUpload = fid;
+  document.getElementById('fileInput').click();
+}
+
+function handleFileInput(input) {
+  if (!activeFolderUpload) return;
+  const folder = currentFolders.find(f => f.id === activeFolderUpload);
+  if (!folder) return;
+  const files = Array.from(input.files);
+  let done = 0;
+  if (!files.length) return;
+  files.forEach(file => {
+    // Resize for storage
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const MAX = 1200;
+      let w = img.width, h = img.height;
+      if (w > MAX) { h = h * MAX / w; w = MAX; }
+      if (h > MAX) { w = w * MAX / h; h = MAX; }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      folder.photos.push({ name: file.name, dataUrl });
+      URL.revokeObjectURL(url);
+      if (++done === files.length) renderFolders();
+    };
+    img.src = url;
+  });
+  input.value = '';
+}
+
+function removePhoto(fid, idx) {
+  const folder = currentFolders.find(f => f.id === fid);
+  if (folder) folder.photos.splice(idx, 1);
+  renderFolders();
+}
+
+function renderFolders() {
+  const container = document.getElementById('folderList');
+  if (!currentFolders.length) {
+    container.innerHTML = `<div style="color:var(--text-dim);font-size:0.82rem;padding:8px 0;">Aucun dossier — crée-en un ci-dessous.</div>`;
+    return;
+  }
+  container.innerHTML = currentFolders.map(f => {
+    const photos = f.photos || [];
+    const thumbs = photos.map((ph, i) => `
+      <div class="photo-thumb">
+        <img src="${ph.dataUrl}" alt="${ph.name}" onclick="openLbModal('${f.id}',${i})"/>
+        <button class="photo-del" onclick="event.stopPropagation();removePhoto('${f.id}',${i})">✕</button>
+      </div>`).join('');
+    return `
+      <div class="folder-item" id="folder-${f.id}">
+        <div class="folder-header" onclick="toggleFolder('${f.id}')">
+          <span class="folder-icon">📁</span>
+          <span class="folder-name">${f.name}</span>
+          <span class="folder-count">${photos.length} photo${photos.length!==1?'s':''}</span>
+          <button onclick="event.stopPropagation();deleteFolder('${f.id}')" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:0.8rem;padding:2px 6px;">🗑</button>
+          <span class="folder-chevron">›</span>
+        </div>
+        <div class="folder-photos">
+          <div class="folder-photo-upload" onclick="triggerFolderUpload('${f.id}')">
+            📸 Ajouter des photos dans "${f.name}"
+          </div>
+          <div class="photo-grid">${thumbs}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════
+// LIGHTBOX
+// ══════════════════════════════════════════
+function openLbModal(fid, idx) {
+  const folder = currentFolders.find(f => f.id === fid);
+  if (!folder) return;
+  lbPhotos = folder.photos; lbIndex = idx;
+  showLb();
+}
+
+function openLbPoint(pid, fid, idx) {
+  const p = points.find(x => x.id === pid);
+  if (!p) return;
+  const folder = (p.folders||[]).find(f => f.id === fid);
+  if (!folder) return;
+  lbPhotos = folder.photos; lbIndex = idx;
+  showLb();
+}
+
+function showLb() {
+  if (!lbPhotos.length) return;
+  document.getElementById('lbImg').src = lbPhotos[lbIndex].dataUrl;
+  document.getElementById('lbName').textContent = lbPhotos[lbIndex].name;
+  document.getElementById('lightbox').classList.add('open');
+}
+
+function closeLightbox() { document.getElementById('lightbox').classList.remove('open'); }
+function lbNav(dir) { lbIndex = (lbIndex + dir + lbPhotos.length) % lbPhotos.length; showLb(); }
+
+// ══════════════════════════════════════════
+// SIDEBAR
+// ══════════════════════════════════════════
+let filterStr = '';
+function filterPoints(v) { filterStr = v.toLowerCase(); renderSidebar(); }
+
+function renderSidebar() {
+  const list = document.getElementById('pointsList');
+  document.getElementById('pointCount').textContent = points.length;
+  const filtered = points.filter(p => p.name.toLowerCase().includes(filterStr));
+  if (!filtered.length) {
+    list.innerHTML = `<div class="empty-state"><div class="icon">📍</div>${points.length ? 'Aucun résultat.' : 'Appuie sur <strong>Ajouter un point</strong><br/>puis clique sur la carte.'}</div>`;
+    return;
+  }
+  list.innerHTML = filtered.map(p => {
+    const folders = p.folders || [];
+    const total = folders.reduce((s,f)=>s+(f.photos||[]).length, 0);
+    const tags = folders.map(f=>`<span class="tag">📁 ${f.name}</span>`).join('');
+    const photoTag = total ? `<span class="tag tag-count">📸 ${total}</span>` : '';
+    return `
+      <div class="point-card${selectedId===p.id?' selected':''}" id="sc-${p.id}" onclick="focusPoint('${p.id}')">
+        <div class="point-card-name">🎯 ${p.name}</div>
+        <div class="point-card-coords">${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}</div>
+        ${tags||photoTag ? `<div class="point-card-tags">${tags}${photoTag}</div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function focusPoint(id) {
+  selectedId = id;
+  renderSidebar();
+  const p = points.find(x => x.id === id);
+  if (!p) return;
+  map.setView([p.lat, p.lng], 15, { animate: true });
+  setTimeout(() => markers[id]?.openPopup(), 400);
+}
+
+function highlightSidebar(id) {
+  selectedId = id;
+  renderSidebar();
+  document.getElementById('sc-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// ══════════════════════════════════════════
+// PERSIST
+// ══════════════════════════════════════════
+async function persist() {
+  if (useFirebase && db) {
+    const obj = {};
+    points.forEach(p => { obj[p.id] = p; });
+    try { await db.ref('points').set(obj); }
+    catch(e) { showToast('❌ Erreur sync: ' + e.message); }
+  } else {
+    try { localStorage.setItem('chassePoints', JSON.stringify(points)); }
+    catch(e) { showToast('⚠️ Stockage plein — réduis la taille des photos'); }
+  }
+}
+
+// ══════════════════════════════════════════
+// TOAST
+// ══════════════════════════════════════════
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// ══════════════════════════════════════════
+// KEYBOARD & CLICKS
+// ══════════════════════════════════════════
+document.getElementById('modalOverlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
+document.getElementById('lightbox').addEventListener('click', e => { if (e.target === e.currentTarget) closeLightbox(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeModal(); closeLightbox(); if (addingMode) toggleAddMode(); }
+  if (e.key === 'Enter' && document.getElementById('modalOverlay').classList.contains('open')) savePoint();
+  if (e.key === 'ArrowLeft' && document.getElementById('lightbox').classList.contains('open')) lbNav(-1);
+  if (e.key === 'ArrowRight' && document.getElementById('lightbox').classList.contains('open')) lbNav(1);
+});
+
+// ══════════════════════════════════════════
+// BOOT
+// ══════════════════════════════════════════
+const saved = localStorage.getItem('fbConfig');
+if (saved === 'local') {
+  skipConfig();
+} else if (saved) {
+  try { initFirebase(JSON.parse(saved)); }
+  catch(e) { skipConfig(); }
+}
+// else show config screen
+</script>
+</body>
+</html>
