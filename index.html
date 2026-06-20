@@ -792,7 +792,14 @@ function getUserColor(uid) {
 
 function getPointColor(p) {
   if (p.ownerUid) return getUserColor(p.ownerUid);
+  // Ancien point sans owner : couleur basée sur l'id pour le distinguer
+  if (p.id) return USER_COLORS[parseInt(p.id.toString().slice(-2), 10) % USER_COLORS.length];
   return '#5cb82e';
+}
+
+function isOwnerOf(p) {
+  if (!p.ownerUid) return true; // ancien point sans propriétaire
+  return !!(currentUser && p.ownerUid === currentUser.uid);
 }
 
 function makeIcon(p, selected) {
@@ -824,7 +831,7 @@ function makePopup(p) {
   const ownerColor = getPointColor(p);
   const ownerAvatar = p.ownerPhoto ? `<img src="${p.ownerPhoto}" style="width:18px;height:18px;border-radius:50%;vertical-align:middle;margin-right:4px;border:1.5px solid ${ownerColor};" />` : `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${ownerColor};margin-right:5px;vertical-align:middle;"></span>`;
   const ownerLine = p.ownerName ? `<div style="font-size:0.7rem;color:#666;margin-bottom:8px;display:flex;align-items:center;">${ownerAvatar}${p.ownerName}</div>` : '';
-  const isOwner = currentUser && p.ownerUid === currentUser.uid || !p.ownerUid;
+  const isOwner = isOwnerOf(p);
   return `
     <div style="font-family:'Inter',system-ui;padding:2px;">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
@@ -860,6 +867,14 @@ function toggleAddMode() {
 // MODAL
 // ══════════════════════════════════════════
 function openModal(id, lat, lng) {
+  // Vérifier les droits si on modifie un point existant
+  if (id) {
+    const p = points.find(x => x.id === id);
+    if (p && !isOwnerOf(p)) {
+      showToast('🔒 Seul ' + (p.ownerName || 'le créateur') + ' peut modifier ce point');
+      return;
+    }
+  }
   editingId = id;
   if (id) {
     const p = points.find(x => x.id === id);
